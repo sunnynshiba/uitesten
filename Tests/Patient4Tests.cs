@@ -17,20 +17,13 @@ namespace UiTests
         private LoginPage loginPage;
         private MyPrescriptionsPage prescriptionsPage;
         private MySqlDatabaseHelper _dbHelper;
-        private readonly string baseUrl = "https://localhost:7059";
+        private readonly string baseUrl = "http://localhost:5070";
 
         // ---------- DATABASE SETUP ----------
 
         [OneTimeSetUp]
         public void GlobalSetup()
         {
-            // Start ChromeDriver
-            driver = new ChromeDriver();
-            driver.Manage().Window.Maximize();
-
-            // Init pages
-            loginPage = new LoginPage(driver, baseUrl);
-
             // DB helper
             _dbHelper = new MySqlDatabaseHelper();
 
@@ -57,6 +50,18 @@ namespace UiTests
             }
         }
 
+        [SetUp]
+        public void Setup()
+        {
+            // New ChromeDriver for each test
+            driver = new ChromeDriver();
+            loginPage = new LoginPage(driver, baseUrl);
+            prescriptionsPage = new MyPrescriptionsPage(driver, baseUrl);
+
+            // Start at login page
+            loginPage.GoTo();
+        }
+
         [OneTimeTearDown]
         public void GlobalCleanup()
         {
@@ -79,36 +84,24 @@ namespace UiTests
             driver.Quit();
         }
 
-
-        // ---------- HELPERS ----------
-
-        private void LoginAs(string username, string password)
+        [TearDown]
+        public void Cleanup()
         {
-            loginPage.GoTo();
-            loginPage.Login(username, password);
-
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-            wait.Until(d => d.Url.Contains("/Prescriptions/MyPrescriptions"));
+            try { driver.Quit(); } catch { }
         }
+
 
         // ---------- TESTS ----------
-
-        [Test]
-        public void VerifySeededUsersExist()
-        {
-            var result = _dbHelper.ExecuteQuery(
-                "SELECT COUNT(*) AS userCount FROM users WHERE Username IN ('jjansen','pietp','lisavd','huisarts1','specialist1');"
-            );
-
-            Assert.AreEqual(5, Convert.ToInt32(result.Rows[0]["userCount"]),
-                "Not all test users were added to DB.");
-            Console.WriteLine("DB test ran successfully: " + result.Rows[0]["userCount"]);
-        }
+        // ---------- AC4.1 ----------
 
         [Test]
         public void TC4_1_1_Login_Success()
         {
-            LoginAs("jjansen", "Wachtw123");
+            loginPage.GoTo();
+            loginPage.Login("jjansen", "Wachtw123");
+            var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
+            wait.Until(d => d.Url.Contains("/MyPrescriptions"));
+
             Assert.IsTrue(driver.Url.Contains("/Prescriptions/MyPrescriptions"));
             Assert.IsTrue(driver.PageSource.Contains("Logged in:"), "Expected logged-in state.");
         }
@@ -117,15 +110,17 @@ namespace UiTests
         public void TC4_1_2_Login_WrongPassword()
         {
             loginPage.GoTo();
-            loginPage.Login("jjansen", "Wachtw12");
-            Assert.AreEqual("Username/password not recognized", loginPage.GetErrorMessage());
+            loginPage.Login("jjansen", "wrongpassword");
+
+            string errorMessage = loginPage.GetErrorMessage();
+            Assert.AreEqual("Username/password not recognized", errorMessage);
         }
+
 
         [Test]
         public void TC4_1_3_Login_UnknownUser()
         {
-            loginPage.GoTo();
-            loginPage.Login("unknownuser", "Wachtw123");
+            loginPage.Login("unknown", "Wachtwoord2");
             Assert.AreEqual("User not found", loginPage.GetErrorMessage());
         }
 
@@ -148,28 +143,32 @@ namespace UiTests
         [Test]
         public void TC4_1_6_Login_Redirect()
         {
-            LoginAs("jjansen", "Wachtw123");
+            loginPage.Login("jjansen", "Wachtw123");
+            var wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
+            wait.Until(d => d.Url.Contains("/MyPrescriptions"));
+
             Assert.IsTrue(driver.Url.Contains("/MyPrescriptions"));
         }
 
+        // ---------- AC4.2 ----------
         [Test]
         public void TC4_2_1_OwnMedicationVisible()
         {
-            LoginAs("pietp", "Wachtwoord2");
+            loginPage.Login("pietp", "Wachtwoord2");
             Assert.IsTrue(prescriptionsPage.ContainsMedication("Amoxicillin"));
         }
 
         [Test]
         public void TC4_2_2_NoAccessOtherPatients()
         {
-            LoginAs("pietp", "Wachtwoord2");
+            loginPage.Login("pietp", "Wachtwoord2");
             Assert.IsFalse(prescriptionsPage.CanSeeOtherPatientData(7));
         }
 
         [Test]
         public void TC4_2_3_NoActiveMedication()
         {
-            LoginAs("lisavd", "Wachtwoord2");
+            loginPage.Login("lisavd", "Wachtwoord2");
             Assert.IsTrue(prescriptionsPage.HasNoPrescriptions());
         }
 

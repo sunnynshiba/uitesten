@@ -1,49 +1,75 @@
 ﻿using OpenQA.Selenium;
+using OpenQA.Selenium.Support.UI;
+using System;
 
-public class LoginPage
+namespace UiTests.Pages
 {
-    private IWebDriver _driver;
-    private string _baseUrl;
-
-    public LoginPage(IWebDriver driver, string baseUrl)
+    public class LoginPage
     {
-        _driver = driver;
-        _baseUrl = baseUrl;
-    }
+        private readonly IWebDriver _driver;
+        private readonly string _baseUrl;
+        private readonly WebDriverWait _wait;
 
-    public void GoTo() => _driver.Navigate().GoToUrl(_baseUrl);
+        public LoginPage(IWebDriver driver, string baseUrl)
+        {
+            _driver = driver ?? throw new ArgumentNullException(nameof(driver));
+            _baseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
+            _wait = new WebDriverWait(_driver, TimeSpan.FromSeconds(5));
+        }
 
-    public void Login(string username, string password)
-    {
-        _driver.FindElement(By.Id("Username")).Clear();
-        _driver.FindElement(By.Id("Username")).SendKeys(username);
+        public void GoTo()
+        {
+            _driver.Navigate().GoToUrl(_baseUrl);
+        }
 
-        _driver.FindElement(By.Id("Password")).Clear();
-        _driver.FindElement(By.Id("Password")).SendKeys(password);
+        public void Login(string username, string password)
+        {
+            var usernameInput = _driver.FindElement(By.Id("Username"));
+            var passwordInput = _driver.FindElement(By.Id("Password"));
+            var loginButton = _driver.FindElement(By.Name("btn-login"));
 
-        _driver.FindElement(By.Name("btn-login")).Click();
-    }
+            usernameInput.Clear();
+            usernameInput.SendKeys(username);
 
-    public string GetErrorMessage()
-    {
-        var errorElement = _driver.FindElement(By.Id("login-error"));
-        return errorElement?.Text ?? string.Empty;
-    }
+            passwordInput.Clear();
+            passwordInput.SendKeys(password);
 
-    // --- Safe validation message helper ---
-    private string GetValidationMessage(string elementId)
-    {
-        var element = _driver.FindElement(By.Id(elementId));
-        return element?.GetAttribute("validationMessage") ?? string.Empty;
-    }
+            loginButton.Click();
+        }
 
-    public string GetUsernameValidationMessage()
-    {
-        return GetValidationMessage("Username");
-    }
+        public string GetErrorMessage()
+        {
+            var wait = new WebDriverWait(_driver, TimeSpan.FromSeconds(5));
 
-    public string GetPasswordValidationMessage()
-    {
-        return GetValidationMessage("Password");
+            // Wait until the page reloads and the error span is present and visible
+            var errorElement = wait.Until(d =>
+            {
+                try
+                {
+                    var e = d.FindElement(By.Id("login-error"));
+                    return e.Displayed ? e : null;
+                }
+                catch (NoSuchElementException)
+                {
+                    return null;
+                }
+            });
+
+            return errorElement.Text.Trim();
+        }
+
+
+
+        public string GetUsernameValidationMessage()
+        {
+            var usernameInput = _driver.FindElement(By.Id("Username"));
+            return usernameInput.GetAttribute("validationMessage");
+        }
+
+        public string GetPasswordValidationMessage()
+        {
+            var passwordInput = _driver.FindElement(By.Id("Password"));
+            return passwordInput.GetAttribute("validationMessage");
+        }
     }
 }

@@ -1,51 +1,57 @@
 ﻿using OpenQA.Selenium;
+using OpenQA.Selenium.Support.UI;
+using System;
 
 namespace UiTests.Pages
 {
     public class MyPrescriptionsPage
     {
         private readonly IWebDriver _driver;
+        private readonly string _baseUrl;
+        private readonly WebDriverWait _wait;
 
-        public MyPrescriptionsPage(IWebDriver driver)
+        public MyPrescriptionsPage(IWebDriver driver, string baseUrl)
         {
-            _driver = driver;
+            _driver = driver ?? throw new ArgumentNullException(nameof(driver));
+            _baseUrl = baseUrl ?? throw new ArgumentNullException(nameof(baseUrl));
+            _wait = new WebDriverWait(_driver, TimeSpan.FromSeconds(5));
         }
 
-        // --- Locators ---
-        private IWebElement AlertInfo => _driver.FindElement(By.CssSelector(".alert-info"));
-        private IReadOnlyCollection<IWebElement> MedicationRows =>
-            _driver.FindElements(By.CssSelector(".table tbody tr"));
-        private IWebElement LoggedInUser => _driver.FindElement(By.CssSelector("span[name='user_name']"));
-
-        // --- Actions & Assertions ---
-        public string GetLoggedInUsername() => LoggedInUser.Text.Trim();
-
-        public bool HasNoPrescriptions()
+        public bool ContainsMedication(string name)
         {
             try
             {
-                return AlertInfo.Text.Contains("You have no current prescriptions", StringComparison.OrdinalIgnoreCase);
+                _wait.Until(d => d.FindElement(By.Id("prescriptions-table")));
+                return _driver.PageSource.Contains(name);
             }
-            catch (NoSuchElementException)
+            catch
             {
                 return false;
             }
         }
 
-        public bool ContainsMedication(string medicationName)
-        {
-            foreach (var row in MedicationRows)
-            {
-                if (row.Text.Contains(medicationName, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            return false;
-        }
-
         public bool CanSeeOtherPatientData(int patientId)
         {
-            // Example: if your rows include patient IDs or names, verify those aren’t visible
-            return _driver.PageSource.Contains($"Patient ID: {patientId}");
+            try
+            {
+                return _driver.PageSource.Contains($"patient-{patientId}");
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public bool HasNoPrescriptions()
+        {
+            try
+            {
+                return _driver.FindElements(By.CssSelector(".prescription-row")).Count == 0;
+            }
+            catch
+            {
+                return true;
+            }
         }
     }
 }

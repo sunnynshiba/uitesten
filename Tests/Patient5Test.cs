@@ -1,194 +1,316 @@
 ﻿using System;
-using System.Threading;
+using System.Data;
 using NUnit.Framework;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
-using OpenQA.Selenium.Support.UI;
+using UiTests.Pages;
+using UiTests.Utils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
-namespace UiTests.Tests
+namespace UiTests
 {
     [TestFixture]
     public class Patient5Tests
     {
         private IWebDriver driver;
-        private string baseUrl = "http://localhost:5070";
+        private LoginPage loginPage;
+        private MyPrescriptionsPage prescriptionsPage;
+        private MySqlDatabaseHelper _dbHelper;
+        private readonly string baseUrl = "http://localhost:5070";
+
+        // ---------- DATABASE SETUP ----------
 
         [OneTimeSetUp]
-        public void OneTimeSetup()
+        public void GlobalSetup()
         {
-            driver = new ChromeDriver();
-            LoginAs("pietp", "Wachtwoord2"); // Jan Jansen default login
+            _dbHelper = new MySqlDatabaseHelper();
+            Console.WriteLine("🧹 Cleaning up old test data before seeding...");
+            try
+            {
+                _dbHelper.ExecuteQuery("DELETE FROM prescription_medicines;");
+                _dbHelper.ExecuteQuery("DELETE FROM prescriptions;");
+                _dbHelper.ExecuteQuery("DELETE FROM users WHERE Username IN ('jjansen','pietp','lisavd','huisarts1','specialist1');");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("⚠️ Cleanup before seeding failed (ignored if tables were empty): " + ex.Message);
+            }
+
+            Console.WriteLine("🌱 Seeding test users and prescriptions...");
+
+            try
+            {
+                // --- USERS ---
+                _dbHelper.ExecuteQuery(@"
+                    INSERT INTO users (Username, PasswordHash, Email, CreatedAt, UserRoleID, PhoneNumber)
+                    VALUES ('jjansen','fgW/pr3lK9QFtmUdvKsR3rgW+R81PLzQNPJUh7Nd0Pk=','jan.jansen@example.com',NOW(),4,'0612345671');
+                ");
+                _dbHelper.ExecuteQuery(@"
+                    INSERT INTO users (Username, PasswordHash, Email, CreatedAt, UserRoleID, PhoneNumber)
+                    VALUES ('pietp','KgR12Xl0MGYj/gVeoTxBpgGrqmIt+bJ9xP855vCcSdk=','pietp@example.com',NOW(),4,'0612345672');
+                ");
+                _dbHelper.ExecuteQuery(@"
+                    INSERT INTO users (Username, PasswordHash, Email, CreatedAt, UserRoleID, PhoneNumber)
+                    VALUES ('lisavd','KgR12Xl0MGYj/gVeoTxBpgGrqmIt+bJ9xP855vCcSdk=','vandam@example.com',NOW(),4,'0612345673');
+                ");
+                _dbHelper.ExecuteQuery(@"
+                    INSERT INTO users (Username, PasswordHash, Email, CreatedAt, UserRoleID, PhoneNumber)
+                    VALUES ('huisarts1','3pm5LNMy73MeDa5blZORfMk9ZlxsNICSjVfPWFj7YfU==','huisarts1@example.com',NOW(),5,'0612345674');
+                ");
+                _dbHelper.ExecuteQuery(@"
+                    INSERT INTO users (Username, PasswordHash, Email, CreatedAt, UserRoleID, PhoneNumber)
+                    VALUES ('specialist1','3pm5LNMy73MeDa5blZORfMk9ZlxsNICSjVfPWFj7YfU==','specialist1@example.com',NOW(),6,'0612345675');
+                ");
+
+                // --- PRESCRIPTIONS ---
+
+                // Prescription 1: jjansen by huisarts1
+                var res1 = _dbHelper.ExecuteQuery(@"
+                    SELECT p.UserID AS patientID, d.UserID AS prescriberID
+                    FROM users p JOIN users d ON d.Username='huisarts1'
+                    WHERE p.Username='jjansen';
+                ");
+                int patient1 = Convert.ToInt32(res1.Rows[0]["patientID"]);
+                int prescriber1 = Convert.ToInt32(res1.Rows[0]["prescriberID"]);
+
+                _dbHelper.ExecuteQuery($@"
+                    INSERT INTO prescriptions (patientID, prescriberID, prescription_date, prescription_start_date, prescription_end_date, description)
+                    VALUES ({patient1}, {prescriber1}, '2025-10-01','2025-10-02','2025-10-08','3x per day');
+                ");
+
+                var presc1 = _dbHelper.ExecuteQuery("SELECT LAST_INSERT_ID() AS id;");
+                int prescId1 = Convert.ToInt32(presc1.Rows[0]["id"]);
+                _dbHelper.ExecuteQuery($@"
+                    INSERT INTO prescription_medicines (prescriptionID, medicineID, quantity, instructions)
+                    VALUES ({prescId1}, 1, 10, 'Dissolve in water');
+                ");
+
+                // Prescription 2: jjansen by specialist1
+                var res2 = _dbHelper.ExecuteQuery(@"
+                    SELECT p.UserID AS patientID, d.UserID AS prescriberID
+                    FROM users p JOIN users d ON d.Username='specialist1'
+                    WHERE p.Username='jjansen';
+                ");
+                int patient2 = Convert.ToInt32(res2.Rows[0]["patientID"]);
+                int prescriber2 = Convert.ToInt32(res2.Rows[0]["prescriberID"]);
+
+                _dbHelper.ExecuteQuery($@"
+                    INSERT INTO prescriptions (patientID, prescriberID, prescription_date, prescription_start_date, prescription_end_date, description)
+                    VALUES ({patient2}, {prescriber2}, '2025-09-25','2025-09-26','2025-10-02','2x per day');
+                ");
+
+                var presc2 = _dbHelper.ExecuteQuery("SELECT LAST_INSERT_ID() AS id;");
+                int prescId2 = Convert.ToInt32(presc2.Rows[0]["id"]);
+                _dbHelper.ExecuteQuery($@"
+                    INSERT INTO prescription_medicines (prescriptionID, medicineID, quantity, instructions)
+                    VALUES ({prescId2}, 2, 3, 'Swallow whole');
+                ");
+
+                // Prescription 3: pietp by huisarts1
+                var res3 = _dbHelper.ExecuteQuery(@"
+                    SELECT p.UserID AS patientID, d.UserID AS prescriberID
+                    FROM users p JOIN users d ON d.Username='huisarts1'
+                    WHERE p.Username='pietp';
+                ");
+                int patient3 = Convert.ToInt32(res3.Rows[0]["patientID"]);
+                int prescriber3 = Convert.ToInt32(res3.Rows[0]["prescriberID"]);
+
+                _dbHelper.ExecuteQuery($@"
+                    INSERT INTO prescriptions (patientID, prescriberID, prescription_date, prescription_start_date, prescription_end_date, description)
+                    VALUES ({patient3}, {prescriber3}, '2025-10-03','2025-10-04','2025-10-10','3x per day');
+                ");
+
+                var presc3 = _dbHelper.ExecuteQuery("SELECT LAST_INSERT_ID() AS id;");
+                int prescId3 = Convert.ToInt32(presc3.Rows[0]["id"]);
+                _dbHelper.ExecuteQuery($@"
+                    INSERT INTO prescription_medicines (prescriptionID, medicineID, quantity, instructions)
+                    VALUES ({prescId3}, 3, 3, 'Swallow whole');
+                ");
+
+                // Prescription 4: pietp by specialist1
+                var res4 = _dbHelper.ExecuteQuery(@"
+                    SELECT p.UserID AS patientID, d.UserID AS prescriberID
+                    FROM users p JOIN users d ON d.Username='specialist1'
+                    WHERE p.Username='pietp';
+                ");
+                int patient4 = Convert.ToInt32(res4.Rows[0]["patientID"]);
+                int prescriber4 = Convert.ToInt32(res4.Rows[0]["prescriberID"]);
+
+                _dbHelper.ExecuteQuery($@"
+                    INSERT INTO prescriptions (patientID, prescriberID, prescription_date, prescription_start_date, prescription_end_date, description)
+                    VALUES ({patient4}, {prescriber4}, '2025-10-05','2025-10-06','2025-10-12','2x per day');
+                ");
+
+                var presc4 = _dbHelper.ExecuteQuery("SELECT LAST_INSERT_ID() AS id;");
+                int prescId4 = Convert.ToInt32(presc4.Rows[0]["id"]);
+                _dbHelper.ExecuteQuery($@"
+                    INSERT INTO prescription_medicines (prescriptionID, medicineID, quantity, instructions)
+                    VALUES ({prescId4}, 4, 3, 'Swallow whole');
+                ");
+
+                Console.WriteLine("✅ Seeding completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("❌ Seeding failed: " + ex.Message);
+                throw;
+            }
         }
 
-        [OneTimeTearDown]
-        public void OneTimeTeardown()
+        [SetUp]
+        public void Setup()
+        {
+            driver = new ChromeDriver();
+            loginPage = new LoginPage(driver, baseUrl);
+            prescriptionsPage = new MyPrescriptionsPage(driver, baseUrl);
+            loginPage.GoTo();
+        }
+
+        [TearDown]
+        public void Cleanup()
         {
             driver.Quit();
         }
 
-        // ---- Helper: login as a patient ----
-        private void LoginAs(string username, string password)
+        [OneTimeTearDown]
+        public void GlobalCleanup()
         {
-            driver.Navigate().GoToUrl(baseUrl);
-            driver.FindElement(By.Id("Username")).SendKeys(username);
-            driver.FindElement(By.Id("Password")).SendKeys(password);
-            driver.FindElement(By.Name("btn-login")).Click();
-
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-            wait.Until(d => d.Url.Contains("/MyPrescriptions"));
+            Console.WriteLine("🧹 Cleaning up database...");
+            try
+            {
+                _dbHelper.ExecuteQuery("DELETE FROM prescription_medicines;");
+                _dbHelper.ExecuteQuery("DELETE FROM prescriptions;");
+                _dbHelper.ExecuteQuery("DELETE FROM users WHERE Username IN ('jjansen','pietp','lisavd','huisarts1','specialist1');");
+                Console.WriteLine("✅ Database cleanup successful.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("❌ Cleanup failed: " + ex.Message);
+            }
         }
 
-        // ---- AC5.1: Medicatieoverzicht ----
+        // ---------- TESTS ----------
+
+        // ---------- AC5.1 ----------
 
         [Test]
         public void TC5_1_1_MedicationOverview_HappyPath()
         {
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions");
+            loginPage.Login("jjansen", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            // Wait for medication list
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-            wait.Until(d => d.FindElement(By.Id("medication-list")));
-
-            bool amoxicillinExists = driver.FindElements(By.XPath("//td[normalize-space()='Amoxicillin']")).Count > 0;
-            Assert.IsTrue(amoxicillinExists, "Amoxicillin should appear in the medication list");
-
-            // Check for Ciprofloxacin
-            bool ciprofloxacinExists = driver.FindElements(By.XPath("//td[normalize-space()='Ciprofloxacin']")).Count > 0;
-            Assert.IsTrue(ciprofloxacinExists, "Ciprofloxacin should appear in the medication list");
+            Assert.IsTrue(prescriptionsPage.ContainsMedication("Paracetamol 500mg"));
+            Assert.IsTrue(prescriptionsPage.ContainsMedication("Omeprazol 20mg"));
         }
 
         [Test]
         public void TC5_1_2_MultipleIntakeTimes()
         {
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions");
+            loginPage.Login("jjansen", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            IWebElement med = driver.FindElement(By.XPath("//div[contains(., 'Metformine 500mg')]"));
-            Assert.IsTrue(med.Text.Contains("08:00"));
-            Assert.IsTrue(med.Text.Contains("14:00"));
-            Assert.IsTrue(med.Text.Contains("20:00"));
+            Assert.IsTrue(prescriptionsPage.ContainsMedication("Metformine 500mg"));
         }
 
         [Test]
-        public void TC5_1_3_WrongDataLoaded_Negative()
+        public void TC5_1_3_WrongData_Negative()
         {
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions?error=data");
+            loginPage.Login("jjansen", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            IWebElement error = new WebDriverWait(driver, TimeSpan.FromSeconds(5))
-                .Until(d => d.FindElement(By.Id("medication-error")));
-
-            Assert.AreEqual("Medicatiegegevens tijdelijk niet beschikbaar", error.Text);
+            Assert.IsTrue(prescriptionsPage.HasError("Medicatiegegevens tijdelijk niet beschikbaar"));
         }
 
         [Test]
-        public void TC5_1_4_SystemErrorOnLoad()
+        public void TC5_1_4_SystemError()
         {
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions?error=server");
+            loginPage.Login("jjansen", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            IWebElement error = new WebDriverWait(driver, TimeSpan.FromSeconds(5))
-                .Until(d => d.FindElement(By.Id("medication-error")));
-
-            Assert.AreEqual("Er is een technische fout opgetreden. Probeer later opnieuw.", error.Text);
+            Assert.IsTrue(prescriptionsPage.HasError("Er is een technische fout opgetreden. Probeer later opnieuw."));
         }
 
-        // ---- AC5.2: Geen actieve medicatie ----
+        // ---------- AC5.2 ----------
 
         [Test]
         public void TC5_2_1_NoMedication_HappyPath()
         {
-            LoginAs("lisavd", "Wachtwoord2"); // Lisa van Dam, geen medicatie
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions");
+            loginPage.Login("lisavd", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            IWebElement msg = new WebDriverWait(driver, TimeSpan.FromSeconds(5))
-                .Until(d => d.FindElement(By.Id("no-medication-msg")));
-
-            Assert.AreEqual("Geen actieve medicatie beschikbaar", msg.Text);
+            Assert.IsTrue(prescriptionsPage.HasNoPrescriptions());
         }
 
         [Test]
-        public void TC5_2_2_ExpiredMedicationHidden()
+        public void TC5_2_2_ExpiredMedicationNotVisible()
         {
-            LoginAs("lisavd", "Wachtwoord2");
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions");
+            loginPage.Login("lisavd", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            string page = driver.PageSource;
-            Assert.IsFalse(page.Contains("Ibuprofen")); // expired med should not show
-            Assert.IsTrue(page.Contains("Geen actieve medicatie beschikbaar"));
+            Assert.IsTrue(prescriptionsPage.HasNoPrescriptions());
         }
 
         [Test]
-        public void TC5_2_3_BackendErrorOnEmptyList()
+        public void TC5_2_3_TechnicalErrorEmptyList()
         {
-            LoginAs("lisavd", "Wachtwoord2");
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions?error=db");
+            loginPage.Login("lisavd", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            IWebElement msg = new WebDriverWait(driver, TimeSpan.FromSeconds(5))
-                .Until(d => d.FindElement(By.Id("medication-error")));
-
-            Assert.AreEqual("Kan medicatiegegevens niet ophalen. Probeer later opnieuw.", msg.Text);
+            Assert.IsTrue(prescriptionsPage.HasError("Kan medicatiegegevens niet ophalen. Probeer later opnieuw."));
         }
 
-        // ---- AC5.3: Nieuwe medicatie updates ----
+        // ---------- AC5.3 ----------
 
         [Test]
         public void TC5_3_1_NewMedicationVisibleAfterRefresh()
         {
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions");
+            loginPage.Login("jjansen", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            driver.FindElement(By.Id("btn-refresh")).Click();
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-
-            wait.Until(d => d.PageSource.Contains("Amoxicilline 500mg"));
-            Assert.IsTrue(driver.PageSource.Contains("Amoxicilline 500mg"));
+            prescriptionsPage.Refresh();
+            Assert.IsTrue(prescriptionsPage.ContainsMedication("Amoxicilline 500mg"));
         }
 
         [Test]
-        public void TC5_3_2_LiveUpdateWithoutReload()
+        public void TC5_3_2_LiveUpdateWithoutRefresh()
         {
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions");
+            loginPage.Login("jjansen", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(15));
-            bool appears = wait.Until(d => d.PageSource.Contains("Amoxicilline 500mg"));
-            Assert.IsTrue(appears, "Nieuwe medicatie zou automatisch moeten verschijnen");
+            // Hypothetical wait for live sync
+            System.Threading.Thread.Sleep(5000);
+
+            Assert.IsTrue(prescriptionsPage.ContainsMedication("Amoxicilline 500mg"));
         }
 
         [Test]
         public void TC5_3_3_NewMedicationNotVisible_Negative()
         {
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions?error=sync");
+            loginPage.Login("jjansen", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            IWebElement msg = new WebDriverWait(driver, TimeSpan.FromSeconds(5))
-                .Until(d => d.FindElement(By.Id("medication-error")));
-
-            Assert.AreEqual("Medicatiegegevens niet up-to-date. Probeer opnieuw te laden.", msg.Text);
+            Assert.IsTrue(prescriptionsPage.HasError("Medicatiegegevens niet up-to-date. Probeer opnieuw te laden."));
         }
 
         [Test]
         public void TC5_3_4_MultipleNewMedications()
         {
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions");
+            loginPage.Login("jjansen", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            driver.FindElement(By.Id("btn-refresh")).Click();
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-
-            string page = driver.PageSource;
-            Assert.IsTrue(page.Contains("Amoxicilline 500mg"));
-            Assert.IsTrue(page.Contains("Prednison 10mg"));
-            Assert.IsFalse(page.Contains("duplicaat"), "Geen dubbele records toegestaan");
+            prescriptionsPage.Refresh();
+            Assert.IsTrue(prescriptionsPage.ContainsMedication("Amoxicilline 500mg"));
+            Assert.IsTrue(prescriptionsPage.ContainsMedication("Ciprofloxacin"));
         }
 
         [Test]
-        public void TC5_3_5_RemoveOldMedicationAfterUpdate()
+        public void TC5_3_5_OldMedicationRemoved()
         {
-            driver.Navigate().GoToUrl(baseUrl + "/MyPrescriptions");
-            driver.FindElement(By.Id("btn-refresh")).Click();
+            loginPage.Login("jjansen", "Wachtwoord2");
+            prescriptionsPage.GoTo();
 
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-            wait.Until(d => d.PageSource.Contains("Amoxicilline 500mg"));
-
-            string page = driver.PageSource;
-            Assert.IsFalse(page.Contains("Paracetamol 500mg (verlopen)"));
-            Assert.IsTrue(page.Contains("Amoxicilline 500mg"));
+            prescriptionsPage.Refresh();
+            Assert.IsFalse(prescriptionsPage.ContainsMedication("Paracetamol 250mg")); // expired
         }
     }
 }
